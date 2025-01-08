@@ -686,9 +686,9 @@ vec3 native_view_transform(vec3 col)
 
 
 
-// FXAA-like algorithms
-// source: https://www.shadertoy.com/view/XcBBWW
-// (modified)
+// FXAA-like algorithm
+// source: https://www.shadertoy.com/view/M33cD7
+// (slightly modified)
 /*--------------------------------------------------------*/
 
 float lum(vec3 col)
@@ -701,147 +701,36 @@ vec3 fetch(vec2 coord)
     return texture(lpass_color, coord / vec2(textureSize(lpass_color, 0))).rgb;
 }
 
-vec2 fetch_gradient(vec2 coord)
+// FXAA-like antialiasing
+vec3 fxaa_ish(vec2 coord)
 {
-    return vec2(
-        lum(fetch(coord + vec2(.5, 0))) - lum(fetch(coord + vec2(-.5, 0))),
-        lum(fetch(coord + vec2(0, .5))) - lum(fetch(coord + vec2(0, -.5)))
+    // calculate the gradient
+    vec2 grad = vec2(
+        lum(fetch(coord + vec2(1, 0))) - lum(fetch(coord + vec2(-1, 0))),
+        lum(fetch(coord + vec2(0, 1))) - lum(fetch(coord + vec2(0, -1)))
     );
-}
-
-vec2 figure_out_tangent2(vec2 coord)
-{
-    float lum_center = lum(fetch(coord));
-    float min_lum_diff = 1e9;
-    vec2 dir_with_lowest_lum_diff = vec2(1, 0);
     
-    vec2 dir = vec2(1, 0);
-    float lum_moved = lum(fetch(coord + dir));
-    float lum_diff = abs(lum_moved - lum_center);
-    if (lum_diff < min_lum_diff)
-    {
-        min_lum_diff = lum_diff;
-        dir_with_lowest_lum_diff = dir;
-    }
-    
-    dir = vec2(1, 1);
-    lum_moved = lum(fetch(coord + dir));
-    lum_diff = abs(lum_moved - lum_center);
-    if (lum_diff < min_lum_diff)
-    {
-        min_lum_diff = lum_diff;
-        dir_with_lowest_lum_diff = dir;
-    }
-    
-    dir = vec2(0, 1);
-    lum_moved = lum(fetch(coord + dir));
-    lum_diff = abs(lum_moved - lum_center);
-    if (lum_diff < min_lum_diff)
-    {
-        min_lum_diff = lum_diff;
-        dir_with_lowest_lum_diff = dir;
-    }
-    
-    dir = vec2(-1, 1);
-    lum_moved = lum(fetch(coord + dir));
-    lum_diff = abs(lum_moved - lum_center);
-    if (lum_diff < min_lum_diff)
-    {
-        min_lum_diff = lum_diff;
-        dir_with_lowest_lum_diff = dir;
-    }
-    
-    dir = vec2(-1, 0);
-    lum_moved = lum(fetch(coord + dir));
-    lum_diff = abs(lum_moved - lum_center);
-    if (lum_diff < min_lum_diff)
-    {
-        min_lum_diff = lum_diff;
-        dir_with_lowest_lum_diff = dir;
-    }
-    
-    dir = vec2(-1, -1);
-    lum_moved = lum(fetch(coord + dir));
-    lum_diff = abs(lum_moved - lum_center);
-    if (lum_diff < min_lum_diff)
-    {
-        min_lum_diff = lum_diff;
-        dir_with_lowest_lum_diff = dir;
-    }
-    
-    dir = vec2(0, -1);
-    lum_moved = lum(fetch(coord + dir));
-    lum_diff = abs(lum_moved - lum_center);
-    if (lum_diff < min_lum_diff)
-    {
-        min_lum_diff = lum_diff;
-        dir_with_lowest_lum_diff = dir;
-    }
-    
-    dir = vec2(1, -1);
-    lum_moved = lum(fetch(coord + dir));
-    lum_diff = abs(lum_moved - lum_center);
-    if (lum_diff < min_lum_diff)
-    {
-        min_lum_diff = lum_diff;
-        dir_with_lowest_lum_diff = dir;
-    }
-    
-    return dir_with_lowest_lum_diff;
-}
-
-vec2 get_final_tangent(vec2 coord)
-{
-    vec2 tangent = figure_out_tangent2(gl_FragCoord.xy);
-
-    vec2 grad = fetch_gradient(gl_FragCoord.xy);
-    return tangent * step(.0003, dot(grad, grad));
-}
-
-// keep following the tangent on both sides and average out the
-// colors along the path
-vec3 fxaa1(vec2 coord)
-{
-    vec2 curr_coord = coord;
-    vec3 col = fetch(curr_coord);
-    for (int i = 0; i < 3; i++)
-    {
-        curr_coord += get_final_tangent(curr_coord);
-        col += fetch(curr_coord);
-    }
-    curr_coord = coord;
-    for (int i = 0; i < 3; i++)
-    {
-        curr_coord -= get_final_tangent(curr_coord);
-        col += fetch(curr_coord);
-    }
-    col /= 7.;
-    return col;
-}
-
-// keep following the tangent on both sides and average out the
-// colors along the path, but don't recalculate the tangent at every step.
-// this basically just a directional blur along the tangnet.
-vec3 fxaa2(vec2 coord)
-{
-    vec2 tang = get_final_tangent(coord);
-    float tang_len_sq = dot(tang, tang);
-    if (tang_len_sq < .01)
+    // skip if the gradient is too small
+    if (dot(grad, grad) < .0003)
     {
         return fetch(coord);
     }
-    tang /= sqrt(tang_len_sq);
+    
+    // tangent (rotate the gradient 90 deg)
+    vec2 tang = vec2(-grad.y, grad.x);
 
+    // keep following the tangent on both sides and average out the
+    // colors along the path
     vec3 col = vec3(0);
-    for (int i = -5; i <= 5; i++)
+    for (int i = -6; i <= 6; i++)
     {
-        col += fetch(coord + .5 * float(i) * tang);
+        col += fetch(coord + float(i) * tang);
     }
-    col /= 11.;
+    col /= 13.;
     return col;
 }
 
-// end of FXAA-like algorithms
+// end of FXAA-like algorithm
 /*--------------------------------------------------------*/
 
 
@@ -856,7 +745,7 @@ void main()
     else
     {
         // FXAA
-        col = fxaa2(gl_FragCoord.xy);
+        col = fxaa_ish(gl_FragCoord.xy);
 
         // vignette
         vec2 uv01 = gl_FragCoord.xy / vec2(textureSize(lpass_color, 0));
